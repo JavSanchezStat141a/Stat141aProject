@@ -1,0 +1,444 @@
+---
+title: "Final Project"
+author: "Javier Sanchez"
+date: "2023-05-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+
+library(knitr, warn.conflicts = FALSE, quietly = TRUE)
+library(tidyverse, warn.conflicts = FALSE, quietly = TRUE)
+library(dplyr, warn.conflicts = FALSE, quietly = TRUE)
+library(ggplot2)
+
+```
+
+```{r, echo=FALSE}
+
+session=list()
+for(i in 1:18){
+  session[[i]]=readRDS(paste('C:/Users/javie/OneDrive/Desktop/Statistics Homeworks/Stat141aProject/sessions/session',i,'.rds',sep=''))
+}
+
+```
+
+
+### **Abstract**
+
+
+The following reports looks into a data set by Nick A. Steinmetz, which looks into the brains of different mice across 39 sessions. Steinmetz analyzes different brain regions and their neurons to see the neuron spikes created when mice are given some sort of stimuli.The following project will analyze 18 of those sessions across 4 different mice, and we will first look at trends amoungst the different variables and look at the differences across sessions and trials. I will use this information to create a base for a prediction model using contrasts and neurons in order to predict the feedback outcome of a given set of test data.
+
+
+### **1. Introduction**
+
+The goal of this report is to build an accurate model that will be used to predict the feedback outcome of 200 trials taken from test data of two different mice. Steinmetz looks into different a multitude of different brain regions per session and analyzes their neurons to see how the mice react when given some variance of a stimuli. He records the feedback which shows whether or not the mice responded accordingly when given a certain stimuli. The predictive model that will be built will utilize the stimuli and number of neurons per session to predict the feedback.
+
+### **2. Exploring the 18 Trials**
+
+##### **_2.1 Summary of Data Structure_**
+
+```{r, echo = FALSE}
+
+n.session=length(session)
+
+SummaryValues <- tibble(
+  mouse_name = rep('name',n.session),
+  date_exp =rep('dt',n.session),
+  n_brain_area = rep(0,n.session),
+  n_neurons = rep(0,n.session),
+  n_trials = rep(0,n.session),
+  success_rate = rep(0,n.session)
+)
+
+
+for(i in 1:n.session){
+  tmp = session[[i]];
+  SummaryValues[i,1]=tmp$mouse_name;
+  SummaryValues[i,2]=tmp$date_exp;
+  SummaryValues[i,3]=length(unique(tmp$brain_area));
+  SummaryValues[i,4]=dim(tmp$spks[[1]])[1];
+  SummaryValues[i,5]=length(tmp$feedback_type);
+  SummaryValues[i,6]=mean(tmp$feedback_type+1)/2;
+  
+}
+
+t1 = kable(SummaryValues, format = "html", table.attr = "class='table table-striped'",caption = "**Table 2.1.1. Summary of each Session**",digits=2) 
+t1
+```
+
+The following table shows how many brain areas were observed with their respective number of neurons. We can also see the number of trials with the overall success rate per session. The success rate represents how often the mice reacted positively, or correctly, to the stimuli they were given. Trends or not apparent from this table, however one observation is that the sessions with a lower number of trials tend to have a lower success rate.
+
+##### **_2.2 Exploring Neural Activities Across Trials_**
+
+```{r, echo = FALSE}
+
+i.s = 15
+
+i.t = 1
+
+average_spike_area<-function(i.t,this_session){
+  spk.trial = this_session$spks[[i.t]]
+  area= this_session$brain_area
+  spk.count=apply(spk.trial,1,sum)
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+  }
+
+n.trial=length(session[[i.s]]$feedback_type)
+n.area=length(unique(session[[i.s]]$brain_area ))
+# Alternatively, you can extract these information in the meta that we created before.
+
+# We will create a data frame that contain the average spike counts for each area, feedback type,  the two contrasts, and the trial id
+
+trial.summary =matrix(nrow=n.trial,ncol= n.area+1+2+1)
+for(i.t in 1:n.trial){
+  trial.summary[i.t,]=c(average_spike_area(i.t,this_session = session[[i.s]]),
+                          session[[i.s]]$feedback_type[i.t],
+                        session[[i.s]]$contrast_left[i.t],
+                        session[[i.s]]$contrast_right[i.s],
+                        i.t)
+}
+
+colnames(trial.summary)=c(names(average_spike_area(i.t,this_session = session[[i.s]])), 'feedback', 'left contr.','right contr.','id' )
+
+# Turning it into a data frame
+trial.summary <- as_tibble(trial.summary)
+
+trial_suc = filter(trial.summary, feedback == 1)
+trial_fail = filter(trial.summary, feedback < 1)
+```
+
+
+```{r, echo=FALSE}
+area.col=rainbow(n=n.area,alpha=0.7)
+# In base R, I usually initiate a blank plot before drawing anything on it
+plot(x=1,y=0, col='white',xlim=c(0,n.trial),ylim=c(0.5,10), xlab="Trials",ylab="Average spike counts", main=paste("Figure 2.2.1. Spikes per area in Session", i.s,"for Success"))
+
+
+for(i in 1:n.area){
+  lines(y=trial_suc[[i]],x=trial_suc$id,col=area.col[i],lty=2,lwd=1)
+  lines(smooth.spline(trial_suc$id, trial_suc[[i]]),col=area.col[i],lwd=3)
+  }
+legend("topright", 
+  legend = colnames(trial_suc)[1:n.area], 
+  col = area.col, 
+  lty = 1, 
+  cex = 0.8
+)
+```
+
+Figure 2.2.1 shows the average number of spikes per trial in Session 15 where the outcome of the trial was a success, i.e. feedback is 1. The CA3 neuron is very prominent in these trials which suggests that this might be an important neuron for a positive feedback outcome. In these trials the CA3 neuron is very active where it peaks at around 10 spikes in a trial, and most trials observe a high amount of activity in CA3. The other neurons fluctuate often and overlap/cross amoungst each other which might lead us to observe that these neurons are not as important.
+
+```{r, echo = FALSE}
+area.col=rainbow(n=n.area,alpha=0.7)
+# In base R, I usually initiate a blank plot before drawing anything on it
+plot(x=1,y=0, col='white',xlim=c(0,n.trial),ylim=c(0.5,10), xlab="Trials",ylab="Average spike counts", main=paste("Figure 2.2.2. Spikes per area in Session", i.s, "for Fail"))
+
+
+for(i in 1:n.area){
+  lines(y=trial_fail[[i]],x=trial_fail$id,col=area.col[i],lty=2,lwd=1)
+  lines(smooth.spline(trial_fail$id, trial_fail[[i]]),col=area.col[i],lwd=3)
+  }
+legend("topright", 
+  legend = colnames(trial_fail)[1:n.area], 
+  col = area.col, 
+  lty = 1, 
+  cex = 0.8
+)
+```
+
+Figure 2.2.2 shows the average number of spikes per trial in Session 15 where the outcome of the trial was a failure, i.e. feedback is -1. This graph shows a less prominent CA3 neuron, although it does reach a peak around 10 spikes, it can be observed that the average CA3 spikes per trial does not reach above 6 the majority of the time. The CA3 neuron mostly fluctuates around the average of the MB neuron for these trials as well. 
+
+By observing both figures, it is likely that a when the CA3 neuron is primarily active, the feedback tends to be more positive.
+
+
+##### **_2.3 change in 2.2 across trials_**
+
+```{r, echo= FALSE}
+plot.trial<-function(i.t,area, area.col,this_session){
+  
+spks1 = this_session$spks[[i.t]]
+n.nuerons = dim(spks1)[1]
+time.points = this_session$time[[i.t]]
+
+for(i in 1:n.nuerons){
+ids.spike=which(spks1[i,]>0)
+i.a = which(area== this_session$brain_area[i]);
+}
+
+
+plot(0,0,xlim=c(min(time.points),max(time.points)),ylim=c(0,n.nuerons+1),col='white', xlab='Time (s)',yaxt='n', ylab='Neuron', main=paste('Figure 2.3.',i.t,'. Trial ',i.t, 'feedback', this_session$feedback_type[i.t] ),cex.lab=1.5)
+    for(i in 1:n.nuerons){
+        i.a=which(area== this_session$brain_area[i]);
+        col.this=area.col[i.a]
+        
+        ids.spike=which(spks1[i,]>0) # find out when there are spikes 
+        if( length(ids.spike)>0 ){
+            points(x=time.points[ids.spike],y=rep(i, length(ids.spike) ),pch='.',cex=2, col=col.this)
+        }
+      
+            
+    }
+    
+legend("topright", 
+  legend = area, 
+  col = area.col, 
+  pch = 16, 
+  cex = 0.8
+  )
+}
+
+varname=names(trial.summary);
+area=varname[1:(length(varname)-4)]
+par(mfrow=c(1,2))
+plot.trial(1,area, area.col,session[[i.s]])
+plot.trial(2,area, area.col,session[[i.s]])
+```
+
+The following graphs show the neuron spikes in trial 1 where the feedback was positive against trial 2 where the feedback was negative. These graphs will support the previous assessment of CA3 being an important factor in positive feedback rate for Session 15. Comparing the two figures we can see that there is a much more prominent presence the CA3 neuron in figure 2.3.1 than in figure 2.3.2. This is observed in the middle area where the CA3 spikes occur. In figure 2.3.2 this "middle area" appears vacant more often than in figure 2.3.1. We can also observe that in both figures the VPM, root, and ZI neurons are prominent in both feedback types, which allows us to confirm that these neurons are not as important and CA3 is in determining feedback outcome.
+
+```{r, echo  =FALSE}
+
+library(corrplot)
+library(PerformanceAnalytics)
+
+#my_data <- trial_fail[1:8]
+#chart.Correlation(my_data, histogram=TRUE, pch=19)
+
+#pairs(trial.summary[1:8],pch=16)
+
+#sess.hcl <- trial.summary[1:8] %>%  dist() %>% hclust(method = "average")
+```
+
+```{r, echo = FALSE}
+
+#plot(sess.hcl)
+
+#sess.k3 <- trial.summary[1:8] %>% kmeans(5)
+ 
+
+#trial.summary %>% mutate(cluster = sess.k3$cluster) %>%
+  #ggplot(aes(x=CA3, y=MB, color = as.factor(cluster))) + 
+  #geom_point()
+```
+
+```{r, echo=FALSE}
+average_spike_area<-function(i.t,this_session){
+  spk.trial = this_session$spks[[i.t]]
+  area= this_session$brain_area
+  spk.count=apply(spk.trial,1,sum)
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+}
+
+
+```
+
+```{r, echo = FALSE}
+new_func = function(this_session){
+  area= this_session$brain_area
+  n.nuerons = length(this_session$feedback_type)
+  for(i in 1:n.nuerons){
+  spk.trial = this_session$spks[[i]]
+  spk.count=apply(spk.trial,1,sum)
+  }
+  spk.average.tapply=tapply(spk.count, area, mean)
+  return(spk.average.tapply)
+}
+
+ave_spks_session=list()
+for(i in 1:18){
+  ave_spks_session[[i]] = c(new_func(session[[i]]),session[[i]]$mouse_name)
+  
+}
+
+
+```
+
+```{r, echo = FALSE}
+
+sessions = list()
+
+for(i in 1:18){
+  
+  sessions[[i]] = cbind(session[[i]]$contrast_left,session[[i]]$contrast_right,rep(2,length(session[[i]]$contrast_left)),session[[i]]$mouse_name,length(session[[i]]$brain_area),length(unique(session[[i]]$brain_area)),length(session[[i]]$spks),session[[i]]$feedback_type)
+}
+
+df2 = rbind(as.data.frame(sessions[[1]]),as.data.frame(sessions[[2]]), as.data.frame(sessions[[3]]),as.data.frame(sessions[[4]]), as.data.frame(sessions[[5]]),as.data.frame(sessions[[6]]), as.data.frame(sessions[[7]]),as.data.frame(sessions[[8]]), as.data.frame(sessions[[9]]),as.data.frame(sessions[[10]]), as.data.frame(sessions[[11]]),as.data.frame(sessions[[12]]), as.data.frame(sessions[[13]]),as.data.frame(sessions[[14]]), as.data.frame(sessions[[15]]),as.data.frame(sessions[[16]]), as.data.frame(sessions[[17]]),as.data.frame(sessions[[18]]))
+
+colnames(df2) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+
+df2$contrast_left = as.factor(df2$contrast_left)
+df2$contrast_right = as.factor(df2$contrast_right)
+df2$session = as.factor (df2$session)
+df2$mouse = as.factor(df2$mouse)
+df2$feedback_type = as.factor(df2$feedback_type)
+```
+
+
+##### **_2.4 Homogeneity and heterogeneity_**
+
+```{r, echo = FALSE}
+n.sess = length(ave_spks_session)
+
+new_list = list(ave_spks_session[[15]],ave_spks_session[[3]],ave_spks_session[[8]], ave_spks_session[[5]])
+
+kable(new_list, caption = "**Table 2.4.1 Average Neuron Spikes per Area per Session**")
+```
+
+Table 2.4.1 shows the average number of spikes per brain area per session. I decided to choose one session from each mouse and analyze the differences between them. Lederberg's average number of spikes comes from session 15, Cori's from session 3, Hench's from session 8, and Forssmann from session 5.  First I want to take a look at the CA3 neuron again, and observing from the data above the CA3 neuron was observed in the mice Lederberg and Hench. CA3 had an average spike count above 2 for both of these mice which shows that this neuron is very active whenever stimuli is portrayed to these mice. Lederberg had a success rate of 76% (from table 2.1.1) while Hench only had a success rate of 64%. This could suggest that CA3 can only express the potential for positive feedback in Lederberg only. Looking at Cori's data we can see that MRN is most active, and in this session she had a success rate of 69% (from table 2.1.1) which was her peak. We can observe that MRN is most influential in feedback success from this observation. Forssmann has no observable prominent neuron in this session, as it seems like each neuron
+puts forth an equal amount of work on his brain. In this session FOrssmann recorded his second highest success rate at 67%. With this data we can conclude that each mice has a different prominent neuron that can impact the feedback output positively. 
+
+### **3. Data Integration**
+
+##### **_3.1 Differences Across Hench's Sessions_**
+
+```{r, echo=FALSE}
+
+new_list2 = list(ave_spks_session[[8]],ave_spks_session[[9]],ave_spks_session[[10]], ave_spks_session[[11]])
+
+kable(new_list2, caption = "**Table 2.4.1 Average Neuron Spikes per Area per Session for Hench**")
+```
+
+The most interesting observation from table 2.1.1 comes from Hench who records a success rate sub 70% three quarters of the time. However, in session 11 Hench records a success rate of 80% which is the third highest amoung all sessions. I wanted to take a look at the average spikes per brain area in each of Hench's sessions to see why this might me the case. In Hench's first three sessions Steinmetz observed a multitude of active neurons with each session having a different leader in active number of spikes per area. Hench's fourth session only observed 6 brain areas with 4 of them being active. There isn't any observable patterns or cross-over between Hench's fourth session and his other three sessions, so it is not clear as to why Hench scored a high success rate. Going back to Table 2.1.1 we can observe this trend across the session of each mice as well, where the last sessions per mice tend to record a higher success rate. We can conclude that the longer a mouse is tested may result in a higher positive feedback outcome.  
+
+### **4. Model Training And Prediction**
+
+After observing our data, the construction of our prediction model will commence. Reiterating the goal, we want to get an idea of the feedback type through the contrasts and number of neurons in a session. Using this information we get the following model.
+
+```{r, echo = FALSE}
+library(glmnet)
+library(MASS)
+
+glm1 = glm(feedback_type~contrast_right+contrast_left+number_of_neurons,family = "binomial", data = df2)
+glm1
+```
+
+I chose to use a general logistic model as the lda model that I was considering came up with similar results but had a more complicated process. This glm model summarizes all the information better and allows us to get a similarly accurate model for testing feedback type.
+
+
+### **5. Putting Our Model to the Test**
+
+##### **_5.1 Analyzing Test Data_**
+
+```{r, echo=FALSE}
+
+test_data3= list()
+for(i in 1:2){
+  test_data3[[i]] = readRDS(paste('C:/Users/javie/OneDrive/Desktop/Statistics Homeworks/Stat141aProject/test12/test',i,'.rds',sep=''))
+}
+
+```
+
+```{r, echo=FALSE}
+
+test_data31 = list()
+
+for(i in 1:2){
+  
+  test_data31[[i]] = cbind(test_data3[[i]]$contrast_left,test_data3[[i]]$contrast_right,rep(2,length(test_data3[[i]]$contrast_left)), test_data3[[i]]$mouse_name,length( test_data3[[i]]$brain_area),length(unique( test_data3[[i]]$brain_area)),length( test_data3[[i]]$spks), test_data3[[i]]$feedback_type)
+}
+
+df3 = rbind(as.data.frame(test_data31[[1]]), as.data.frame(test_data31[[2]]))
+colnames(df3) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+
+df3.1 = as.data.frame(test_data31[[1]])
+colnames(df3.1) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+df3.2 = as.data.frame(test_data31[[2]])
+colnames(df3.2) = c("contrast_left","contrast_right", "session","mouse","number_of_neurons","brain_area","number_of_trials", "feedback_type")
+
+df3$contrast_left = as.factor(df3$contrast_left)
+df3$contrast_right = as.factor(df3$contrast_right)
+df3$session = as.factor (df3$session)
+df3$mouse = as.factor(df3$mouse)
+df3$feedback_type = as.factor(df3$feedback_type)
+
+df3.1$contrast_left = as.factor(df3.1$contrast_left)
+df3.1$contrast_right = as.factor(df3.1$contrast_right)
+df3.1$session = as.factor (df3.1$session)
+df3.1$mouse = as.factor(df3.1$mouse)
+df3.1$feedback_type = as.factor(df3.1$feedback_type)
+
+df3.2$contrast_left = as.factor(df3.2$contrast_left)
+df3.2$contrast_right = as.factor(df3.2$contrast_right)
+df3.2$session = as.factor (df3.2$session)
+df3.2$mouse = as.factor(df3.2$mouse)
+df3.2$feedback_type = as.factor(df3.2$feedback_type)
+
+```
+
+Using this general linear model we will create a confusion matrix and compute the misclassification rate to look at the outcomes of our model with the accuracy. The test data that we will predicting contains 200 trials, 100 trials come from Cori's session 1 and 100 come from Lederberg's session 18. We will be conducting each test for each session separately and then combined to see how our model reacts to the data at hand. 
+
+```{r, echo = FALSE}
+
+probs_logi_1 <- predict(glm1, newdata = df3.1, type = "response")
+preds_logi_1 <- ifelse(probs_logi_1 > 0.5, 'Outcome','Count Below 0.5')              
+
+
+conf_logi_1 <- table(preds_logi_1, df3.1$feedback_type, dnn = c('Predicted Direction', 'Direction'))
+kable(conf_logi_1, caption = '**Table 5.1.1a. Feedback Type Confusion matrix from logistic- Test Data 1**')
+
+logi_acc_1 <- data.frame(Metric = c('Accuracy'),
+                       value = c(sum(diag(conf_logi_1)) / sum(conf_logi_1)
+                            
+                             ))
+
+kable(logi_acc_1, caption = "**Table 5.1.1b**")
+
+probs_logi_2 <- predict(glm1, newdata = df3.2, type = "response")
+preds_logi_2 <- ifelse(probs_logi_2 > 0.5, 'Outcome','Count Below 0.5')
+
+
+conf_logi_2 <- table(preds_logi_2, df3.2$feedback_type, dnn = c('Predicted Direction', 'Direction'))
+kable(conf_logi_2, caption = '**Table 5.1.2a. Feedback Type Confusion matrix from logistic-Test Data 2**')
+
+logi_acc_2 <- data.frame(Metric = c('Accuracy'),
+                       value = c(sum(diag(conf_logi_2)) / sum(conf_logi_2) 
+                             ))
+
+kable(logi_acc_2,caption = "**Table 5.1.2b**")
+
+probs_logi <- predict(glm1, newdata = df3, type = "response")
+preds_logi <- ifelse(probs_logi > 0.5, 'Outcome','Count Below 0.5')              
+
+
+conf_logi <- table(preds_logi, df3$feedback_type, dnn = c('Predicted Direction', 'Direction'))
+kable(conf_logi, caption = '**Table 5.1.3a. Feedback Type Confusion matrix from logistic- Combined**')
+
+logi_acc <- data.frame(Metric = c('Accuracy'),
+                       value = c(sum(diag(conf_logi)) / sum(conf_logi)))
+
+kable(logi_acc,caption = "**Table 5.1.3b**")
+```
+
+Table 5.1.1a shows the predicted feedback outcome for Cori's 100 test trials. Our model predicted that 71 out of the 100 trials will result in a positive feedback or a 71% success rate which is right around the success rate of Cori's other sessions. Table 5.1.1b shows us the accuracy rating for our model when only testing Cori's test data. We can see that we have a 72% accuracy rating which means that our model is wrong 28% of the time. This is a high number, however for this project we are not going to work on improving our model rather analyzing the outputs our model gives us. Table 5.1.2a. shows the predicted feedback outcome for Lederbergs 100 trials, and from this we can see that our model predicts that Lederberg will portray positive feedback 73% of the time. However, this is not trustworthy, as Table 5.1.2b, which shows the accuracy our model for this test, has an accuracy rating of only 27%, meaning that our predictions will be wrong 73% if the time. Table 5.1.3a. shows us the predicted feedback for the combined 200 trials of both mice. Our model suggests that 144 out of the 200 trials will show positive feedback, or 72% success rate, with table 5.1.3b giving us a 72.5% accuracy rating. These results show that it is best to combine both test data sets to achieve a more accurate prediction. 
+
+##### **_Concluding Remarks_**
+
+In this project we observed 18 different sessions, a subset from a 39 session project by Nick A. Steinmetz, that observed the number of neurons spikes per brain area through hundreds of trials across 4 different mice. We then explored Lederberg's session 15 data and observed different data trends amoungst the variables which we then looked at the different neuron spikes in different trials across session 15. After exploring the data set we created a logistic regression model using the contrasts and number of neurons for every trial observed across the 18 sessions and used it to predict the feedback outcome of test data taken from Cori's session 1 and Lederberg's session 18. We were able to get fair results when predicting Cori's feedback and a combined datasets feedback. However, when testing Lederberg's trials independently our accuracy rating plummeted to 27%. Plausible reasoning for this could be an error in the code for extracting Lederberg's test data, or an error in the model. However, from our results we can conclude that out of Cori's 100 trials we expect 71 of them to result in a sucesss with 72% accuracy, and we expect 73 of Lederbergs 100 trials to result in success with 27% accuracy. However, if we combine both data sets, our model predicts that 144 out of the 200 combined trials will result in a success with 72.5% accuracy.
+
+## Acknowledgement
+
+_Graphs in Question 2_
+
+Graphs in Question 2 were inspired by Dr. Shizhe Chen graphs from Course Project: Consulting for Milestone I
+Link to pdf of discussion here:https://1drv.ms/b/s!ApuXbCFYMajx1y6XXao6PXu6EZA0?e=FA7if7
+
+_Removing Error Messages_
+
+I had warning messages on my knitted document and used a code provided by Valeri Voev on stackoverflow.com
+The following is the link to the thread : https://stackoverflow.com/questions/45399587/how-to-remove-warning-messages-in-r-markdown-document
+
+
+
+### Appendix
+
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```
+
+
+
+
